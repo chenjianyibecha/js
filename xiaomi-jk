@@ -1,0 +1,189 @@
+// ==UserScript==
+// @name         Xiaomi Router Admin Fix for Brave
+// @namespace    http://tampermonkey.net/
+// @version      1.4
+// @description  Fix Xiaomi Router admin page for Brave browser
+// @author       Yu
+// @match        http://192.168.1.164/*
+// @match        http://miwifi.com/*
+// @match        http://192.168.31.1/*
+// @grant        none
+// @run-at       document-start
+// ==/UserScript==
+
+(function() {
+    'use strict';
+    
+    console.log('[Xiaomi Router Fix] Script loaded for Brave browser');
+    
+    // === 1. 核心：彻底隐藏 Brave 标识 ===
+    // 删除 navigator.brave 对象（小米页面会检测这个）
+    Object.defineProperty(navigator, 'brave', {
+        value: undefined,
+        writable: false,
+        configurable: false,
+        enumerable: false
+    });
+    
+    // 删除 window.brave（如果有）
+    delete window.brave;
+    
+    // === 2. 修改 User Agent 为 Chrome ===
+    const chromeUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    
+    Object.defineProperty(navigator, 'userAgent', {
+        get: function() {
+            return chromeUA;
+        },
+        configurable: false,
+        enumerable: true
+    });
+    
+    // 兼容性属性
+    Object.defineProperty(navigator, 'vendor', {
+        get: function() {
+            return 'Google Inc.';
+        },
+        configurable: false
+    });
+    
+    // === 3. 模拟 Chrome 的 chrome 对象 ===
+    if (!window.chrome) {
+        window.chrome = {};
+    }
+    
+    // 添加 Chrome 特有方法（小米可能检测这些）
+    window.chrome.loadTimes = function() {
+        return {
+            requestTime: 0,
+            startLoadTime: 0,
+            commitLoadTime: 0,
+            finishDocumentLoadTime: 0,
+            finishLoadTime: 0,
+            firstPaintTime: 0,
+            firstPaintAfterLoadTime: 0,
+            navigationType: 'Other'
+        };
+    };
+    
+    window.chrome.csi = function() {
+        return {
+            onloadT: Date.now(),
+            startE: 0,
+            pageT: 0,
+            tran: 15
+        };
+    };
+    
+    // === 4. 覆盖可能的版本检测函数 ===
+    // 拦截常见的浏览器检测函数
+    const originalQuery = document.querySelector;
+    document.querySelector = function(selector) {
+        const element = originalQuery.apply(this, arguments);
+        
+        // 如果找到版本错误提示元素，立即隐藏
+        if (element && (
+            selector.includes('browser') || 
+            selector.includes('version') || 
+            selector.includes('unsupported') ||
+            selector.includes('error')
+        )) {
+            setTimeout(() => {
+                if (element.textContent && (
+                    element.textContent.includes('浏览器') || 
+                    element.textContent.includes('版本') || 
+                    element.textContent.includes('不支持') ||
+                    element.textContent.includes('Chrome') ||
+                    element.textContent.includes('升级')
+                )) {
+                    console.log('[Xiaomi Router Fix] Hiding error element:', selector);
+                    element.style.display = 'none';
+                    element.innerHTML = '';
+                }
+            }, 100);
+        }
+        return element;
+    };
+    
+    // === 5. 页面加载后清理错误提示 ===
+    window.addEventListener('load', function() {
+        console.log('[Xiaomi Router Fix] Page loaded, cleaning up...');
+        
+        // 方法 A：直接隐藏错误元素
+        setTimeout(function() {
+            const allElements = document.querySelectorAll('body *');
+            allElements.forEach(el => {
+                if (el.textContent && (
+                    el.textContent.includes('浏览器版本') ||
+                    el.textContent.includes('请使用 Chrome') ||
+                    el.textContent.includes('建议使用') ||
+                    el.textContent.includes('107') ||  // 版本号
+                    el.textContent.includes('不支持当前浏览器')
+                )) {
+                    console.log('[Xiaomi Router Fix] Removing element:', el.textContent.substring(0, 50));
+                    el.style.display = 'none';
+                    el.innerHTML = '';
+                }
+            });
+        }, 2000);
+        
+        // 方法 B：覆盖 alert 和 console.error（防止弹出错误）
+        const originalAlert = window.alert;
+        window.alert = function(msg) {
+            if (msg && (msg.includes('浏览器') || msg.includes('版本'))) {
+                console.log('[Xiaomi Router Fix] Blocked alert:', msg);
+                return;
+            }
+            return originalAlert.apply(this, arguments);
+        };
+        
+        // 方法 C：监听 DOM 变化，动态移除新出现的错误提示
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                mutation.addedNodes.forEach(function(node) {
+                    if (node.nodeType === 1 && node.textContent) {
+                        const text = node.textContent;
+                        if (text.includes('浏览器') || text.includes('版本') || text.includes('不支持')) {
+                            console.log('[Xiaomi Router Fix] Removing dynamically added error:', text.substring(0, 50));
+                            node.style.display = 'none';
+                            node.innerHTML = '';
+                        }
+                    }
+                });
+            });
+        });
+        
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    });
+    
+    // === 6. 覆盖 navigator 的其他可能检测点 ===
+    // 有些页面会检测 navigator.plugins, navigator.languages 等
+    Object.defineProperty(navigator, 'plugins', {
+        get: function() {
+            const plugins = [];
+            // 模拟常见的 Chrome 插件
+            plugins.push({
+                name: 'Chrome PDF Viewer',
+                filename: 'internal-pdf-viewer',
+                description: 'Portable Document Format'
+            });
+            plugins.push({
+                name: 'Chrome PDF Plugin',
+                filename: 'internal-pdf-plugin',
+                description: 'Portable Document Format'
+            });
+            plugins.push({
+                name: 'Native Client',
+                filename: 'internal-nacl-plugin',
+                description: 'Native Client Executable'
+            });
+            return plugins;
+        },
+        configurable: false
+    });
+    
+    console.log('[Xiaomi Router Fix] Setup complete');
+})();
